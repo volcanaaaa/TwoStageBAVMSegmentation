@@ -8,9 +8,8 @@ import numpy as np
 original_path = sys.path.copy()
 sys.path.append('../')#cause
 
-# 添加TwoStageBAVMSegmentation模型导入
 from networks.TwoStageBAVMSegmentation import TwoStageBAVMSegmentation
-from src.dataloader.isbi2016_new1 import My3DDataset  # 假设这是您的3D数据集类
+from src.dataloader.isbi2016_new1 import My3DDataset
 
 sys.path = original_path
 import torchvision
@@ -24,7 +23,7 @@ parser.add_argument('--train_file_dir', type=str, default="busi_train_all", help
 parser.add_argument('--val_file_dir', type=str, default="busi_val_all", help='dir')
 parser.add_argument('--base_lr', type=float, default=0.001,
                     help='segmentation network learning rate')
-parser.add_argument('--batch_size', type=int, default=1,  # 对于3D模型，batch_size通常设为1
+parser.add_argument('--batch_size', type=int, default=1,
                     help='batch_size per gpu')
 parser.add_argument('--epochs', type=int, default=300,
                     help='')
@@ -33,11 +32,11 @@ parser.add_argument('--weights', type=str, default=r'/fs0/home/sz2106159/jpg_seg
 parser.add_argument('--mode', type=str, default=r'test',
                     help='')# optional['val','test']
 parser.add_argument('--time', type=bool, default=False,
-                    help='如果计算时间就不保存预测和标签')
+                    help='if compute_time: do_not_save = True')
 parser.add_argument('--in_channels', type=int, default=3,
-                    help='输入通道数')
+                    help='in_channels')
 parser.add_argument('--num_classes', type=int, default=1,
-                    help='输出类别数')
+                    help='num_classes')
 args = parser.parse_args()
 
 def iou_score(output, target):
@@ -88,30 +87,29 @@ def get_model(args):
 
 def binarize_tensor(tensor):
     """
-    将张量二值化，阈值取平均值
+    Binarize a tensor using mean value as threshold
     Args:
-        tensor: 输入的张量
+        tensor: Input tensor
 
     Returns:
-        二值化后的张量
+        Binary tensor with values 0 or 1
     """
-    threshold = tensor.mean()  # 取张量的平均值作为阈值
+    threshold = tensor.mean()  
     device = tensor.device
     binary_tensor = torch.where(tensor > threshold, torch.tensor(1,device=device), torch.tensor(0,device=device))
     return binary_tensor
 
 def save_3d_volume_as_slices(volume, save_dir, name_prefix):
     """
-    将3D体积保存为2D切片
+    Save a 3D volume as 2D slice images
     Args:
-        volume: 3D张量 (D, H, W)
-        save_dir: 保存目录
-        name_prefix: 文件名前缀
+        volume: 3D tensor (D, H, W)
+        save_dir: Directory to save images
+        name_prefix: Prefix for filenames
     """
     os.makedirs(save_dir, exist_ok=True)
     for d in range(volume.shape[0]):
         slice_2d = volume[d]
-        # 转换为PIL图像并保存
         slice_image = torchvision.transforms.ToPILImage()(slice_2d.cpu().numpy().astype('uint8'))
         slice_path = os.path.join(save_dir, f'{name_prefix}_slice_{d:03d}.png')
         slice_image.save(slice_path)
@@ -146,7 +144,6 @@ def inference(args, fold):
             input = input.cuda()
             target = target.cuda()
 
-            # 使用TwoStageBAVMSegmentation模型进行推理
             output, stage1_mask, roi_coords_list = model(input, phase='test')
 
             iou, dice = iou_score(output, target)
@@ -154,19 +151,16 @@ def inference(args, fold):
             iou_total += iou
             dice_total += dice
 
-            # 处理输出
             output = torch.sigmoid(output)
             output_binary = binarize_tensor(output) * 255.0
 
             if not args.time:
-                # 保存预测结果
-                for i in range(output_binary.shape[0]):  # 遍历batch
-                    volume_pred = output_binary[i, 0]  # 取第一个通道 (D, H, W)
+                for i in range(output_binary.shape[0]): 
+                    volume_pred = output_binary[i, 0] 
                     save_3d_volume_as_slices(volume_pred, save_dir, f'{name}_pred_{i}')
                 
-                # 保存标签
-                for i in range(target.shape[0]):  # 遍历batch
-                    volume_label = target[i, 0] * 255.0  # 取第一个通道并缩放到0-255
+                for i in range(target.shape[0]):
+                    volume_label = target[i, 0] * 255.0 
                     save_3d_volume_as_slices(volume_label, save_dir_label, f'{name}_label_{i}')
 
     print("IoU: ", iou_total / num)
