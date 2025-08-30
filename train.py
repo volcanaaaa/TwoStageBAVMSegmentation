@@ -12,7 +12,6 @@ import torch.nn as nn
 import numpy as np
 from torch.cuda.amp import autocast, GradScaler
 
-# 添加模型定义代码
 def kaiming_normal_init_weight(model):
     for m in model.modules():
         if isinstance(m, nn.Conv2d):
@@ -398,7 +397,6 @@ class TwoStageBAVMSegmentation(nn.Module):
             
             return full_size_output, stage1_mask, roi_coords_list
 
-# 辅助函数
 def structure_loss(pred, mask):
     weit = 1 + 5 * torch.abs(
         F.avg_pool2d(mask, kernel_size=31, stride=1, padding=15) - mask)
@@ -460,7 +458,6 @@ def get_model(args):
 
 scaler = GradScaler()
 
-#-------------------------- train func --------------------------#
 def train(epoch):
     model.train()
     iteration = 0
@@ -491,11 +488,9 @@ def train(epoch):
                         len(train_loader.dataset),
                         100. * batch_idx / len(train_loader), loss.item()))
                         
-        # 记录训练损失
         train_loss_writer.writerow([epoch, batch_idx, loss.item()])
         train_loss_file.flush()
 
-#-------------------------- eval func --------------------------#
 def evaluation(epoch, loader):
     model.eval()
     total_loss = 0
@@ -537,7 +532,6 @@ def evaluation(epoch, loader):
     print("Average dice value of evaluation dataset = ", dice_average)
     print("Average iou value of evaluation dataset = ", iou_average)
     
-    # 记录验证损失
     val_loss_writer.writerow([epoch, average_loss])
     val_loss_file.flush()
     
@@ -545,7 +539,6 @@ def evaluation(epoch, loader):
     return dice_average, iou_average, average_loss
 
 if __name__ == '__main__':
-    # 打开CSV文件记录损失
     train_loss_file = open('training_loss.csv', 'w', newline='')
     train_loss_writer = csv.writer(train_loss_file)
     train_loss_writer.writerow(['Epoch', 'Batch', 'Loss'])  
@@ -554,10 +547,8 @@ if __name__ == '__main__':
     val_loss_writer = csv.writer(val_loss_file)
     val_loss_writer.writerow(['Epoch', 'Loss'])
     
-    #-------------------------- get args --------------------------#
     parse_config = get_cfg()
 
-    #-------------------------- build loggers and savers --------------------------#
     exp_name = parse_config.exp_name + '_phase_' + parse_config.phase + '_loss_' + str(
         parse_config.seg_loss) + '_aug_' + str(
             parse_config.aug)
@@ -572,9 +563,6 @@ if __name__ == '__main__':
     os.environ['CUDA_VISIBLE_DEVICES'] = parse_config.gpu
     device_ids = list(range(torch.cuda.device_count()))
     
-    #-------------------------- build dataloaders --------------------------#
-    # 注意：这里需要根据您的实际数据集类进行修改
-    # 假设您的数据集类名为My3DDataset
     from src.dataloader.isbi2016_new1 import My3DDataset
     
     dataset = My3DDataset(split='train', aug=parse_config.aug)
@@ -594,7 +582,6 @@ if __name__ == '__main__':
         pin_memory=True,
         drop_last=False)
 
-    #-------------------------- build models --------------------------#
     model = get_model(parse_config)
  
     if len(device_ids) > 1:
@@ -606,7 +593,6 @@ if __name__ == '__main__':
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10, verbose=True)
     torch.cuda.empty_cache()
 
-    #-------------------------- start training --------------------------#
     max_dice = 0
     max_iou = 0
     best_ep = 0
