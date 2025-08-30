@@ -1,15 +1,8 @@
-"""
-Two-stage deep learning ensemble for brain arteriovenous malformations (bAVMs) nidus segmentation.
-First stage uses a 2D U-Net to detect and localize bAVMs regions of interest (ROI).
-Second stage employs a 3D self-attention network with CBAM for precise segmentation within the ROI.
-"""
-
 import torch
 import torch.nn as nn
 import numpy as np
 from torch.distributions.uniform import Uniform
 
-# ==================== 第一阶段：2D U-Net检测模型 ====================
 def kaiming_normal_init_weight(model):
     for m in model.modules():
         if isinstance(m, nn.Conv2d):
@@ -29,8 +22,7 @@ def sparse_init_weight(model):
     return model
 
 class ConvBlock2D(nn.Module):
-    """Two convolution layers with batch norm and leaky relu"""
-
+  
     def __init__(self, in_channels, out_channels, dropout_p):
         super(ConvBlock2D, self).__init__()
         self.conv_conv = nn.Sequential(
@@ -47,8 +39,7 @@ class ConvBlock2D(nn.Module):
         return self.conv_conv(x)
 
 class DownBlock2D(nn.Module):
-    """Downsampling followed by ConvBlock"""
-
+  
     def __init__(self, in_channels, out_channels, dropout_p):
         super(DownBlock2D, self).__init__()
         self.maxpool_conv = nn.Sequential(
@@ -60,7 +51,6 @@ class DownBlock2D(nn.Module):
         return self.maxpool_conv(x)
 
 class UpBlock2D(nn.Module):
-    """Upsampling followed by ConvBlock"""
 
     def __init__(self, in_channels1, in_channels2, out_channels, dropout_p,
                  bilinear=False):
@@ -166,7 +156,6 @@ class UNet2D(nn.Module):
         output = self.decoder(feature)
         return output
 
-# ==================== 第二阶段：3D自注意力网络 ====================
 class ChannelAttentionModule3D(nn.Module):
     def __init__(self, channel, ratio=16):
         super(ChannelAttentionModule3D, self).__init__()
@@ -312,53 +301,40 @@ class UNet_CBAM_3D(nn.Module):
 
         return d1, (ca1, sa1, ca2, sa2, ca3, sa3, ca4, sa4)
 
-# ==================== 两阶段集成模型 ====================
 class TwoStageBAVMSegmentation(nn.Module):
     def __init__(self, in_channels=3, num_classes=4):
         super(TwoStageBAVMSegmentation, self).__init__()
-        # 第一阶段：2D U-Net检测模型
-        self.stage1_detector = UNet2D(in_chns=in_channels, class_num=1)  # 二分类：bAVMs或背景
+            self.stage1_detector = UNet2D(in_chns=in_channels, class_num=1) 
         
-        # 第二阶段：3D自注意力网络
         self.stage2_segmentor = UNet_CBAM_3D(in_chans=in_channels, num_classes=num_classes)
         
-        # ROI大小
-        self.roi_size = 128
+         self.roi_size = 128
         
     def calculate_mass_center(self, mask):
-        """计算二值掩码的质量中心"""
-        # 将掩码转换为numpy数组
         if isinstance(mask, torch.Tensor):
             mask = mask.detach().cpu().numpy()
         
-        # 找到非零元素的坐标
         coords = np.argwhere(mask > 0)
         
         if len(coords) == 0:
-            # 如果没有检测到任何bAVMs，返回图像中心
-            return np.array(mask.shape) // 2
+                   return np.array(mask.shape) // 2
         
-        # 计算质量中心
-        mass_center = coords.mean(axis=0)
+             mass_center = coords.mean(axis=0)
         return mass_center.astype(int)
     
     def extract_roi(self, volume, mass_center):
-        """根据质量中心提取ROI"""
-        d, h, w = volume.shape[-3:]
+               d, h, w = volume.shape[-3:]
         roi_size = self.roi_size
         
-        # 计算ROI的起始和结束坐标
-        start_d = max(0, mass_center[0] - roi_size // 2)
+           start_d = max(0, mass_center[0] - roi_size // 2)
         end_d = min(d, mass_center[0] + roi_size // 2)
         start_h = max(0, mass_center[1] - roi_size // 2)
         end_h = min(h, mass_center[1] + roi_size // 2)
         start_w = max(0, mass_center[2] - roi_size // 2)
         end_w = min(w, mass_center[2] + roi_size // 2)
         
-        # 提取ROI
-        roi = volume[..., start_d:end_d, start_h:end_h, start_w:end_w]
+            roi = volume[..., start_d:end_d, start_h:end_h, start_w:end_w]
         
-        # 如果需要，进行填充以确保ROI大小一致
         pad_d = roi_size - (end_d - start_d)
         pad_h = roi_size - (end_h - start_h)
         pad_w = roi_size - (end_w - start_w)
@@ -369,38 +345,25 @@ class TwoStageBAVMSegmentation(nn.Module):
         return roi, (start_d, end_d, start_h, end_h, start_w, end_w)
     
     def forward(self, x, phase='test'):
-        """
-        前向传播
-        
-        参数:
-        - x: 输入的多模态图像 [B, C, D, H, W]
-        - phase: 训练阶段 ('train_stage1', 'train_stage2') 或测试阶段 ('test')
-        """
+      
         if phase == 'train_stage1':
-            # 第一阶段训练：处理2D切片
             b, c, d, h, w = x.shape
-            # 将3D体积重塑为2D切片批次
             x_2d = x.permute(0, 2, 1, 3, 4).contiguous().view(b * d, c, h, w)
-            # 通过第一阶段网络
             stage1_output = self.stage1_detector(x_2d)
-            # 重塑回3D形状
             stage1_output = stage1_output.view(b, d, 1, h, w).permute(0, 2, 1, 3, 4)
             return stage1_output
             
         elif phase == 'train_stage2':
-            # 第二阶段训练：直接使用裁剪的ROI
-            return self.stage2_segmentor(x)
+               return self.stage2_segmentor(x)
             
-        else:  # 测试阶段
-            # 第一阶段：检测bAVMs位置
+        else:  
             b, c, d, h, w = x.shape
             x_2d = x.permute(0, 2, 1, 3, 4).contiguous().view(b * d, c, h, w)
             stage1_output = self.stage1_detector(x_2d)
             stage1_mask = (torch.sigmoid(stage1_output) > 0.5).float()
             stage1_mask = stage1_mask.view(b, d, 1, h, w).permute(0, 2, 1, 3, 4)
             
-            # 计算质量中心并提取ROI
-            roi_coords_list = []
+                      roi_coords_list = []
             roi_list = []
             
             for i in range(b):
@@ -411,16 +374,13 @@ class TwoStageBAVMSegmentation(nn.Module):
             
             roi_batch = torch.stack(roi_list, dim=0)
             
-            # 第二阶段：在ROI内进行精细分割
             stage2_output, attentions = self.stage2_segmentor(roi_batch)
             
-            # 将分割结果映射回原始图像空间
             full_size_output = torch.zeros_like(x[:, :1, :, :, :])
             for i in range(b):
                 start_d, end_d, start_h, end_h, start_w, end_w = roi_coords_list[i]
                 roi_d, roi_h, roi_w = end_d - start_d, end_h - start_h, end_w - start_w
                 
-                # 调整分割结果大小以匹配原始ROI大小
                 resized_output = nn.functional.interpolate(
                     stage2_output[i:i+1], 
                     size=(roi_d, roi_h, roi_w), 
@@ -428,29 +388,23 @@ class TwoStageBAVMSegmentation(nn.Module):
                     align_corners=True
                 )
                 
-                # 将结果放回原始图像中的正确位置
                 full_size_output[i, 0, start_d:end_d, start_h:end_h, start_w:end_w] = resized_output[0, 0]
             
             return full_size_output, stage1_mask, roi_coords_list
 
-# ==================== 测试代码 ====================
 if __name__ == "__main__":
-    # 创建模型
     model = TwoStageBAVMSegmentation(in_channels=3, num_classes=4)
     
-    # 测试第一阶段
     print("Testing stage 1...")
-    test_input = torch.rand(1, 3, 32, 256, 256)  # 模拟多模态3D输入
+    test_input = torch.rand(1, 3, 32, 256, 256) 
     stage1_output = model(test_input, phase='train_stage1')
     print(f"Stage 1 output shape: {stage1_output.shape}")
     
-    # 测试第二阶段
     print("Testing stage 2...")
-    roi_input = torch.rand(1, 3, 128, 128, 128)  # 模拟ROI输入
+    roi_input = torch.rand(1, 3, 128, 128, 128)  
     stage2_output, attentions = model(roi_input, phase='train_stage2')
     print(f"Stage 2 output shape: {stage2_output.shape}")
     
-    # 测试完整流程
     print("Testing full pipeline...")
     full_output, coarse_mask, roi_coords = model(test_input, phase='test')
     print(f"Full output shape: {full_output.shape}")
